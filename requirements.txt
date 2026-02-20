@@ -1,0 +1,7 @@
+streamlit
+pandas
+numpy
+supabase
+requests
+howlongtobeatpy
+igdb-api-v4
