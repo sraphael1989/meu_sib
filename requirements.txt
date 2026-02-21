@@ -1,7 +1,6 @@
-streamlit
-pandas
-numpy
-supabase
-requests
-howlongtobeatpy
-igdb-api-v4
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
+supabase>=2.0.0
+requests>=2.31.0
+plotly>=5.17.0
