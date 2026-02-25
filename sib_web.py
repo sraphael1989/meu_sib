@@ -15,6 +15,7 @@ from howlongtobeatpy import HowLongToBeat
 from igdb.wrapper import IGDBWrapper
 
 # --- Importações do Supabase ---
+from premium_module import verificar_plano_usuario, bloquear_recurso_premium, mostrar_planos, simular_upgrade_premium
 from db_connection import get_supabase_client, carregar_config_db, salvar_config_db, carregar_dados_db, salvar_dados_db, deletar_item_db
 
 # ==============================================================================
@@ -33,7 +34,7 @@ COLUNAS_ESPERADAS_BACKLOG = [
     "ID", "Titulo", "Tipo", "Plataforma", "Autor", "Genero", "Status", "Meu_Hype",
     "Nota_Externa", "Duracao", "Unidade_Duracao", "Nome_Serie", "Ordem_Serie",
     "Total_Serie", "Data_Adicao", "Progresso_Atual", "Progresso_Total", "Minha_Nota",
-    "Cover_URL", "Data_Finalizacao", "Tempo_Final"
+    "Cover_URL", "Data_Finalizacao", "Tempo_Final", "Origem"
 ]
 
 COLUNAS_ESPERADAS_SESSOES = ["ID_Sessao", "ID_Item", "Data", "Duracao_Sessao", "Progresso_Ganho", "Notas"]
@@ -45,7 +46,7 @@ def carregar_config():
         "pesos": {
             "Meu_Hype": 0.25, "Nota_Externa": 0.15, "Fator_Continuidade": 0.15, 
             "Duracao": 0.10, "Progresso": 0.15, "Antiguidade": 0.10, 
-            "Afinidade_Genero": 0.10 
+            "Afinidade_Genero": 0.10, "Origem": 0.05 
         },
         "conversores_pl": {"Horas": 10, "Páginas": 100, "Episódios": 12, "Minutos": 180, "Edições": 1},
         "bonus_catchup_ativo": True,
@@ -92,6 +93,7 @@ def sincronizar_drive(modo, arquivo):
 # ==============================================================================
 
 def buscar_dados_online_real(titulo, tipo):
+    if not bloquear_recurso_premium("Busca Automática Online"): return None
     st.toast(f"Buscando duração para '{titulo}'...")
     dados = {"duracao": 0}
     if tipo == "Jogo":
@@ -161,6 +163,12 @@ def calcular_ranking(df, config, fatores_ativos=None):
     df_calculo['Nota_Continuidade'] = ((df_calculo['Ordem_Serie'] - 1) / (df_calculo['Total_Serie'] - 1)).where(df_calculo['Total_Serie'] > 1, 0).fillna(0) * 10
     df_calculo['Nota_Hype'] = df_calculo['Meu_Hype']
     df_calculo['Nota_Critica'] = (df_calculo['Nota_Externa'] / 10)
+    # --- NOVO: Fator Origem (Pago vs Grátis) ---
+    if 'Origem' in df_calculo.columns:
+        df_calculo['Nota_Origem'] = (df_calculo['Origem'] == 'Pago').astype(int) * 10
+    else:
+        df_calculo['Nota_Origem'] = 0
+
 
     # --- CÁLCULO DINÂMICO DA PONTUAÇÃO FINAL ---
     df_calculo['Pontuacao_Final'] = 0
@@ -171,6 +179,7 @@ def calcular_ranking(df, config, fatores_ativos=None):
     if fatores_ativos.get("Progresso"): df_calculo['Pontuacao_Final'] += df_calculo['Nota_Progresso'] * pesos_rebalanceados.get('Progresso', 0)
     if fatores_ativos.get("Antiguidade"): df_calculo['Pontuacao_Final'] += df_calculo['Nota_Antiguidade'] * pesos_rebalanceados.get('Antiguidade', 0)
     if fatores_ativos.get("Duracao"): df_calculo['Pontuacao_Final'] += df_calculo['Nota_Duracao'] * pesos_rebalanceados.get('Duracao', 0)
+    if fatores_ativos.get("Origem"): df_calculo['Pontuacao_Final'] += df_calculo['Nota_Origem'] * pesos_rebalanceados.get('Origem', 0)
     
     # --- ALTERAÇÃO AQUI: Bônus agora é condicional ---
     if fatores_ativos.get("Bonus_Catchup") and config.get("bonus_catchup_ativo", False):
@@ -1465,7 +1474,7 @@ def ui_aba_adicionar_itens():
                         "Total_Serie": total_serie if eh_serie else 1,
                         "Data_Adicao": datetime.now().strftime("%Y-%m-%d"), 
                         "Progresso_Atual": prog_atual, "Progresso_Total": prog_total, "Minha_Nota": 0,
-                        "Cover_URL": cover_url, "Data_Finalizacao": pd.NaT, "Tempo_Final": 0
+                        "Cover_URL": cover_url, "Data_Finalizacao": pd.NaT, "Tempo_Final": 0, "Origem": origem_selecionada
                     }
                     novo_df = pd.DataFrame([novo_item])
                     st.session_state.backlog_df = pd.concat([st.session_state.backlog_df, novo_df], ignore_index=True)
@@ -1508,7 +1517,7 @@ def ui_aba_adicionar_itens():
                                 "Data_Adicao": datetime.now().strftime("%Y-%m-%d"), "Meu_Hype": 0,
                                 "Plataforma": "", "Autor": "", "Genero": "", "Nota_Externa": 0,
                                 "Progresso_Atual": 0, "Progresso_Total": 0, "Minha_Nota": 0,
-                                "Cover_URL": "", "Data_Finalizacao": pd.NaT, "Tempo_Final": 0
+                                "Cover_URL": "", "Data_Finalizacao": pd.NaT, "Tempo_Final": 0, "Origem": "Grátis"
                             }
                             itens_para_adicionar.append(item)
                         
@@ -1577,7 +1586,7 @@ def ui_aba_adicionar_itens():
                             "Data_Adicao": datetime.now().strftime("%Y-%m-%d"),
                             "Progresso_Atual": 0, "Progresso_Total": 1, "Minha_Nota": 0,
                             "Cover_URL": dados.get('cover_url', ''),
-                            "Data_Finalizacao": pd.NaT, "Tempo_Final": 0
+                            "Data_Finalizacao": pd.NaT, "Tempo_Final": 0, "Origem": "Grátis"
                         }
                         itens_para_adicionar.append(item)
                     else:
