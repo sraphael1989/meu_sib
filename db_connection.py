@@ -18,12 +18,20 @@ def carregar_config_db(user_id, config_padrao):
     supabase = get_supabase_client()
     try:
         response = supabase.table("user_configs").select("config_data").eq("user_id", user_id).execute()
-        if response.data:
-            return response.data[0]["config_data"]
+        
+        # AJUSTE AQUI: O Supabase pode retornar os dados de formas diferentes dependendo da versão
+        dados = response.data
+        if dados and len(dados) > 0:
+            # Se for uma lista, pegamos o primeiro item
+            if isinstance(dados, list):
+                return dados[0].get("config_data", config_padrao)
+            # Se for um objeto direto
+            return dados.get("config_data", config_padrao)
         else:
             salvar_config_db(user_id, config_padrao)
             return config_padrao
     except Exception as e:
+        # Se der qualquer erro, usamos o padrão para o app não travar
         return config_padrao
 
 def salvar_config_db(user_id, config):
@@ -38,8 +46,9 @@ def carregar_dados_db(user_id, table_name):
     supabase = get_supabase_client()
     try:
         response = supabase.table(table_name).select("*").eq("user_id", user_id).execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
+        dados = response.data
+        if dados:
+            df = pd.DataFrame(dados)
             
             # Mapeamento para garantir compatibilidade com o app original (Maiúsculas)
             mapeamento = {
@@ -69,7 +78,7 @@ def carregar_dados_db(user_id, table_name):
             }
             df = df.rename(columns=mapeamento)
             
-            # Garante que a coluna 'ID' exista para o app não travar
+            # Garante que a coluna 'ID' exista
             if 'ID' not in df.columns and 'id' in df.columns:
                 df['ID'] = df['id']
                 
@@ -91,9 +100,10 @@ def salvar_dados_db(user_id, table_name, df):
                 if pd.isna(v): item[k] = None
                 elif isinstance(v, (pd.Timestamp, datetime)): item[k] = v.isoformat()
                 
-                # Converte chaves para minúsculo para o Supabase aceitar
+                # Converte chaves para minúsculo para o Supabase
                 if k != 'user_id':
-                    item[k.lower()] = item.pop(k)
+                    new_key = k.lower()
+                    item[new_key] = item.pop(k)
         
         supabase.table(table_name).upsert(items).execute()
     except Exception as e:
@@ -102,7 +112,6 @@ def salvar_dados_db(user_id, table_name, df):
 def deletar_item_db(user_id, table_name, item_id):
     supabase = get_supabase_client()
     try:
-        # Tenta deletar usando tanto 'id' quanto 'ID' para garantir
         supabase.table(table_name).delete().eq("user_id", user_id).eq("id", item_id).execute()
     except Exception as e:
         st.error(f"Erro ao deletar item: {e}")
