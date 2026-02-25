@@ -10,9 +10,29 @@ SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 
 def get_supabase_client() -> Client:
     if not SUPABASE_URL or not SUPABASE_KEY:
-        st.error("Erro: Credenciais do Supabase não configuradas.")
+        st.error("Erro: Credenciais do Supabase não configuradas nos Secrets.")
         st.stop()
     return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def carregar_config_db(user_id, config_padrao):
+    supabase = get_supabase_client()
+    try:
+        response = supabase.table("user_configs").select("config_data").eq("user_id", user_id).execute()
+        if response.data:
+            return response.data[0]["config_data"]
+        else:
+            salvar_config_db(user_id, config_padrao)
+            return config_padrao
+    except Exception as e:
+        return config_padrao
+
+def salvar_config_db(user_id, config):
+    supabase = get_supabase_client()
+    try:
+        data = {"user_id": user_id, "config_data": config}
+        supabase.table("user_configs").upsert(data, on_conflict="user_id").execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar configurações: {e}")
 
 def carregar_dados_db(user_id, table_name):
     supabase = get_supabase_client()
@@ -21,11 +41,9 @@ def carregar_dados_db(user_id, table_name):
         if response.data:
             df = pd.DataFrame(response.data)
             
-            # --- TRADUÇÃO DE COLUNAS (A MÁGICA AQUI) ---
-            # Se o banco retornar 'id', 'titulo', etc (minúsculo), 
-            # nós renomeamos para 'ID', 'Titulo', etc (como o seu app espera)
+            # Mapeamento para garantir compatibilidade com o app original (Maiúsculas)
             mapeamento = {
-                'id': 'ID_BANCO', # Reservamos o id do banco
+                'id': 'ID_BANCO',
                 'original_id': 'ID',
                 'titulo': 'Titulo',
                 'tipo': 'Tipo',
@@ -49,8 +67,6 @@ def carregar_dados_db(user_id, table_name):
                 'tempo_final': 'Tempo_Final',
                 'origem': 'Origem'
             }
-            # Se a coluna 'ID' (maiúscula) não existir, mas 'id' existir, renomeamos.
-            # Isso resolve o erro KeyError: 'ID'
             df = df.rename(columns=mapeamento)
             
             # Garante que a coluna 'ID' exista para o app não travar
@@ -71,17 +87,22 @@ def salvar_dados_db(user_id, table_name, df):
         items = df.to_dict(orient='records')
         for item in items:
             item['user_id'] = user_id
-            # Limpeza de NaT/NaN para JSON
             for k, v in list(item.items()):
                 if pd.isna(v): item[k] = None
                 elif isinstance(v, (pd.Timestamp, datetime)): item[k] = v.isoformat()
                 
-                # Para o Supabase aceitar o salvamento, enviamos em minúsculo
-                # (O Supabase prefere assim e evita erros de aspas)
-                item[k.lower()] = item.pop(k)
+                # Converte chaves para minúsculo para o Supabase aceitar
+                if k != 'user_id':
+                    item[k.lower()] = item.pop(k)
         
         supabase.table(table_name).upsert(items).execute()
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+        st.error(f"Erro ao salvar dados: {e}")
 
-# ... (Mantenha as outras funções carregar_config_db e salvar_config_db como estão)
+def deletar_item_db(user_id, table_name, item_id):
+    supabase = get_supabase_client()
+    try:
+        # Tenta deletar usando tanto 'id' quanto 'ID' para garantir
+        supabase.table(table_name).delete().eq("user_id", user_id).eq("id", item_id).execute()
+    except Exception as e:
+        st.error(f"Erro ao deletar item: {e}")
