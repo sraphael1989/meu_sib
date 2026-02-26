@@ -8,3 +8,4 @@ plotly>=5.17.0
 matplotlib
 howlongtobeatpy
 igdb-api-v4
+st-supabase-connection>=0.1.0
