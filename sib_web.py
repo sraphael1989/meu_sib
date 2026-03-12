@@ -1,5 +1,5 @@
 import streamlit as st
-from db_connection import get_supabase_client, carregar_config_db, carregar_dados_db, verificar_conexao_supabase
+from db_connection import get_supabase_client, carregar_config_db, carregar_dados_db
 from premium_module import verificar_plano_usuario
 import pandas as pd
 
